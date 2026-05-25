@@ -573,39 +573,6 @@ body {
   margin-top: 1rem;
 }
 
-/* How it works footer */
-.how-it-works {
-  max-width: 520px;
-  margin: 0 auto;
-  padding: 2rem 1.25rem 3rem;
-  border-top: 1px solid rgba(255, 255, 255, 0.06);
-}
-
-.how-it-works h2 {
-  font-size: 1.1rem;
-  margin-bottom: 1rem;
-  color: var(--text-muted);
-}
-
-.how-it-works ul {
-  list-style: none;
-  font-size: 0.875rem;
-  line-height: 1.6;
-  color: var(--text-muted);
-}
-
-.how-it-works li {
-  margin-bottom: 0.75rem;
-}
-
-.how-it-works code {
-  font-size: 0.8em;
-  background: rgba(255, 255, 255, 0.08);
-  padding: 0.15em 0.4em;
-  border-radius: 4px;
-  color: var(--blue);
-}
-
 /* Portrait mobile tweaks */
 @media (max-width: 380px) {
   .pad-grid {
