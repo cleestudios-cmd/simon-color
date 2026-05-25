@@ -17,12 +17,13 @@
  */
 
 const firebaseConfig = {
-  apiKey: 'YOUR_API_KEY',
-  authDomain: 'YOUR_PROJECT_ID.firebaseapp.com',
-  projectId: 'YOUR_PROJECT_ID',
-  storageBucket: 'YOUR_PROJECT_ID.appspot.com',
-  messagingSenderId: 'YOUR_SENDER_ID',
-  appId: 'YOUR_APP_ID',
+  apiKey: 'AIzaSyC6joFA5cI-5WowbBUaifX9b9rDMcosUU4',
+  authDomain: 'simon-color.firebaseapp.com',
+  projectId: 'simon-color',
+  storageBucket: 'simon-color.firebasestorage.app',
+  messagingSenderId: '275708527921',
+  appId: '1:275708527921:web:20cf869f528abefe9f9c10',
+  measurementId: "G-SKQGDT1BMD"
 };
 
 /* Do not edit this — it checks that you pasted real keys */
