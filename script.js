@@ -17,10 +17,13 @@ const COLORS = ['green', 'red', 'yellow', 'blue'];
 /* Tone frequencies (Hz) per color — Web Audio, no MP3 files */
 const TONE_FREQ = [329.63, 261.63, 392.0, 440.0];
 
-const STORAGE_KEY = 'simonHighScore';
-const LEADERBOARD_KEY = 'simonLeaderboard';   /* JSON "database" in the browser */
 const PLAYER_NAME_KEY = 'simonPlayerName';
 const MAX_LEADERBOARD = 10;
+const SCORES_COLLECTION = 'scores';
+
+let db = null;
+let globalEntries = [];
+let leaderboardUnsubscribe = null;
 
 /* ========== Game state ========== */
 let sequence = [];          // ARRAY: grows each round with random 0–3
@@ -59,28 +62,40 @@ const newRecordMsg = document.getElementById('new-record-msg');
 const leaderboardRankMsg = document.getElementById('leaderboard-rank-msg');
 const pads = document.querySelectorAll('.pad');
 
-/* ========== Leaderboard — JSON array stored in localStorage (persists on refresh) ========== */
-function loadLeaderboard() {
-  try {
-    const raw = localStorage.getItem(LEADERBOARD_KEY);
-    const data = raw ? JSON.parse(raw) : [];
-    return Array.isArray(data) ? data : [];
-  } catch {
-    return [];
-  }
-}
-
-function saveLeaderboard(entries) {
-  localStorage.setItem(LEADERBOARD_KEY, JSON.stringify(entries));
-}
-
+/* ========== Global leaderboard — Firebase Firestore (shared worldwide) ========== */
 function normalizeName(name) {
   return name.trim().replace(/\s+/g, ' ');
 }
 
-function getPlayerBestFromLeaderboard(name) {
+function nameToDocId(name) {
+  const slug = normalizeName(name)
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-|-$/g, '');
+  return slug || 'player';
+}
+
+function initFirebaseDb() {
+  if (typeof FIREBASE_CONFIGURED !== 'undefined' && !FIREBASE_CONFIGURED) {
+    return false;
+  }
+  if (typeof firebase === 'undefined' || !firebase.apps.length) {
+    return false;
+  }
+  db = firebase.firestore();
+  return true;
+}
+
+function getSortedTopEntries(entries) {
+  return [...entries]
+    .filter((e) => e && typeof e.score === 'number' && e.name)
+    .sort((a, b) => b.score - a.score)
+    .slice(0, MAX_LEADERBOARD);
+}
+
+function getPlayerBestFromEntries(name) {
   const key = normalizeName(name).toLowerCase();
-  const entry = loadLeaderboard().find(
+  const entry = globalEntries.find(
     (e) => normalizeName(e.name).toLowerCase() === key
   );
   return entry ? entry.score : 0;
@@ -100,14 +115,22 @@ function getMedal(rank) {
   return '';
 }
 
+function showLeaderboardMessage(message) {
+  leaderboardList.innerHTML = `<li class="leaderboard-empty">${escapeHtml(message)}</li>`;
+}
+
 function renderLeaderboard() {
-  const entries = loadLeaderboard()
-    .sort((a, b) => b.score - a.score)
-    .slice(0, MAX_LEADERBOARD);
+  const entries = getSortedTopEntries(globalEntries);
+
+  if (!db) {
+    showLeaderboardMessage(
+      'Leaderboard unavailable — add your Firebase keys in firebase-config.js'
+    );
+    return;
+  }
 
   if (entries.length === 0) {
-    leaderboardList.innerHTML =
-      '<li class="leaderboard-empty">No scores yet — be the first!</li>';
+    showLeaderboardMessage('No scores yet — be the first!');
     return;
   }
 
@@ -139,36 +162,84 @@ function escapeHtml(text) {
   return div.innerHTML;
 }
 
-/* Add or update a player's best score on the leaderboard */
-function addToLeaderboard(name, score) {
-  if (score <= 0) return loadLeaderboard();
-
-  const cleanName = normalizeName(name);
-  let entries = loadLeaderboard();
-  const key = cleanName.toLowerCase();
-  const existingIndex = entries.findIndex(
-    (e) => normalizeName(e.name).toLowerCase() === key
-  );
-
-  const newEntry = { name: cleanName, score, date: Date.now() };
-
-  if (existingIndex >= 0) {
-    if (score > entries[existingIndex].score) {
-      entries[existingIndex] = newEntry;
-    }
-  } else {
-    entries.push(newEntry);
+function subscribeToLeaderboard() {
+  if (!db) {
+    renderLeaderboard();
+    return;
   }
 
-  entries.sort((a, b) => b.score - a.score);
-  saveLeaderboard(entries);
-  return entries;
+  if (leaderboardUnsubscribe) {
+    leaderboardUnsubscribe();
+    leaderboardUnsubscribe = null;
+  }
+
+  showLeaderboardMessage('Loading scores…');
+
+  leaderboardUnsubscribe = db
+    .collection(SCORES_COLLECTION)
+    .onSnapshot(
+      (snapshot) => {
+        globalEntries = [];
+        snapshot.forEach((doc) => {
+          const data = doc.data();
+          globalEntries.push({
+            name: data.name,
+            score: data.score,
+          });
+        });
+        renderLeaderboard();
+        if (playerName) loadHighScore();
+      },
+      () => {
+        showLeaderboardMessage('Could not load leaderboard. Check Firebase setup.');
+      }
+    );
+}
+
+function upsertLocalEntry(name, score) {
+  const cleanName = normalizeName(name);
+  const key = cleanName.toLowerCase();
+  const idx = globalEntries.findIndex(
+    (e) => normalizeName(e.name).toLowerCase() === key
+  );
+  if (idx >= 0) {
+    if (score > globalEntries[idx].score) {
+      globalEntries[idx] = { name: cleanName, score };
+    }
+  } else {
+    globalEntries.push({ name: cleanName, score });
+  }
+}
+
+async function submitScoreToFirebase(name, score) {
+  if (!db || score <= 0) return false;
+
+  const cleanName = normalizeName(name);
+  const docId = nameToDocId(cleanName);
+  const docRef = db.collection(SCORES_COLLECTION).doc(docId);
+
+  try {
+    const existing = await docRef.get();
+    if (existing.exists && existing.data().score >= score) {
+      return false;
+    }
+
+    await docRef.set(
+      {
+        name: cleanName,
+        score,
+        updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+      },
+      { merge: true }
+    );
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 function getLeaderboardRankByName(name) {
-  const entries = loadLeaderboard()
-    .sort((a, b) => b.score - a.score)
-    .slice(0, MAX_LEADERBOARD);
+  const entries = getSortedTopEntries(globalEntries);
   const key = normalizeName(name).toLowerCase();
   const idx = entries.findIndex(
     (e) => normalizeName(e.name).toLowerCase() === key
@@ -176,21 +247,9 @@ function getLeaderboardRankByName(name) {
   return idx >= 0 ? idx + 1 : null;
 }
 
-/* ========== localStorage — personal best for current player ========== */
+/* ========== Personal best (from global leaderboard for this name) ========== */
 function loadHighScore() {
-  if (playerName) {
-    highScore = getPlayerBestFromLeaderboard(playerName);
-  } else {
-    const saved = localStorage.getItem(STORAGE_KEY);
-    highScore = saved ? parseInt(saved, 10) : 0;
-    if (Number.isNaN(highScore)) highScore = 0;
-  }
-  updateHighScoreDisplay();
-}
-
-function saveHighScore(value) {
-  localStorage.setItem(STORAGE_KEY, String(value));
-  highScore = value;
+  highScore = playerName ? getPlayerBestFromEntries(playerName) : 0;
   updateHighScoreDisplay();
 }
 
@@ -339,8 +398,8 @@ function showTitleScreen() {
   titleScreen.classList.remove('hidden');
   titleScreen.classList.add('screen-active');
   playerNameDisplay.textContent = playerName;
+  subscribeToLeaderboard();
   loadHighScore();
-  renderLeaderboard();
 }
 
 function showGameScreen() {
@@ -385,7 +444,7 @@ function startGame() {
   startRound();
 }
 
-function gameOver() {
+async function gameOver() {
   isPlaying = false;
   canAcceptInput = false;
   isShowingSequence = false;
@@ -397,9 +456,9 @@ function gameOver() {
   finalScoreEl.textContent = score;
   const previousBest = highScore;
 
-  if (score > 0 && playerName) {
-    addToLeaderboard(playerName, score);
-    renderLeaderboard();
+  if (score > 0 && playerName && db) {
+    const saved = await submitScoreToFirebase(playerName, score);
+    if (saved) upsertLocalEntry(playerName, score);
   }
 
   loadHighScore();
@@ -413,17 +472,17 @@ function gameOver() {
   if (isNewRecord && playerName) {
     const rank = getLeaderboardRankByName(playerName);
     if (rank === 1) {
-      leaderboardRankMsg.textContent = '🥇 You are #1 on the leaderboard!';
+      leaderboardRankMsg.textContent = '🥇 You are #1 on the global leaderboard!';
       leaderboardRankMsg.classList.add('rank-gold-text');
       leaderboardRankMsg.classList.remove('hidden');
     } else if (rank === 2) {
-      leaderboardRankMsg.textContent = '🥈 You reached #2 on the leaderboard!';
+      leaderboardRankMsg.textContent = '🥈 You reached #2 on the global leaderboard!';
       leaderboardRankMsg.classList.remove('hidden');
     } else if (rank === 3) {
-      leaderboardRankMsg.textContent = '🥉 You reached #3 on the leaderboard!';
+      leaderboardRankMsg.textContent = '🥉 You reached #3 on the global leaderboard!';
       leaderboardRankMsg.classList.remove('hidden');
     } else if (rank) {
-      leaderboardRankMsg.textContent = `You reached #${rank} on the leaderboard`;
+      leaderboardRankMsg.textContent = `You reached #${rank} on the global leaderboard`;
       leaderboardRankMsg.classList.remove('hidden');
     }
   }
@@ -518,13 +577,13 @@ document.addEventListener('visibilitychange', () => {
   }
 });
 
-/* ========== Init on page load — name screen first, then leaderboard from storage ========== */
+/* ========== Init on page load ========== */
 const savedName = localStorage.getItem(PLAYER_NAME_KEY);
 if (savedName) {
   playerName = normalizeName(savedName);
   playerNameInput.value = playerName;
 }
 
-renderLeaderboard();
+initFirebaseDb();
 disablePads(true);
 showNameScreen();
