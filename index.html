@@ -40,10 +40,10 @@
         <button type="button" id="btn-start" class="btn btn-primary btn-pulse">Start</button>
         <button type="button" id="btn-change-name" class="btn btn-ghost">Change name</button>
 
-        <section class="leaderboard" aria-label="Leaderboard">
-          <h2 class="leaderboard-title">Leaderboard</h2>
+        <section class="leaderboard" aria-label="Global leaderboard">
+          <h2 class="leaderboard-title">Global Leaderboard</h2>
           <ol id="leaderboard-list" class="leaderboard-list">
-            <li class="leaderboard-empty">No scores yet — be the first!</li>
+            <li class="leaderboard-empty">Loading scores…</li>
           </ol>
         </section>
       </div>
@@ -84,19 +84,9 @@
     </div>
   </div>
 
-  <!-- How this works — learning section -->
-  <footer id="how-it-works" class="how-it-works">
-    <h2>How this works</h2>
-    <ul>
-      <li><strong>Arrays</strong> — The computer stores the color sequence in an array (<code>sequence</code>). Each round adds one random number (0–3) to the end.</li>
-      <li><strong>Event listeners</strong> — Buttons use <code>click</code> and <code>pointerdown</code> so taps and clicks run the same game logic.</li>
-      <li><strong>Async timing</strong> — The sequence plays one color at a time using <code>async</code>/<code>await</code> and short delays, so the screen stays responsive.</li>
-      <li><strong>Game loop</strong> — Each round: add a color → flash the sequence → wait for your taps → if correct, score up and repeat; if wrong, game over.</li>
-      <li><strong>localStorage</strong> — Your name, personal best, and the leaderboard are saved as JSON in the browser. Refreshing the page keeps the same list (stored on this device).</li>
-      <li><strong>Leaderboard</strong> — Top scores are sorted highest first. Gold, silver, and bronze highlight places 1–3.</li>
-    </ul>
-  </footer>
-
-  <script src="script.js" defer></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
+  <script src="firebase-config.js"></script>
+  <script src="script.js"></script>
 </body>
 </html>
